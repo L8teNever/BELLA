@@ -2,7 +2,7 @@ version: '3.8'
 
 services:
   bella:
-    build: .
+    image: L8teNever/bella:latest
     container_name: bella-backup-system
     ports:
       - "5000:5000"
