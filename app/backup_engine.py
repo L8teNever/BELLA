@@ -27,8 +27,10 @@ class BackupEngine:
         """
         self.docker_manager = docker_manager
         self.config = config
-        self.backup_dir = config.BACKUP_DIR
-        self.stop_timeout = config.CONTAINER_STOP_TIMEOUT
+
+        # Get config values with fallbacks
+        self.backup_dir = getattr(config, 'BACKUP_DIR', os.getenv('BACKUP_DIR', '/backups'))
+        self.stop_timeout = getattr(config, 'CONTAINER_STOP_TIMEOUT', 30)
 
         # Create backup directory if it doesn't exist
         Path(self.backup_dir).mkdir(parents=True, exist_ok=True)
