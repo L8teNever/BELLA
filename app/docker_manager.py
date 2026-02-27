@@ -16,11 +16,19 @@ class DockerManager:
     def __init__(self):
         """Initialize Docker client"""
         try:
-            self.client = docker.from_env()
-            logger.info("Docker client initialized successfully")
-        except DockerException as e:
+            # Try explicit socket path first (more reliable in containers)
+            self.client = docker.DockerClient(base_url='unix:///var/run/docker.sock')
+            logger.info("Docker client initialized successfully (via unix socket)")
+        except (DockerException, Exception) as e:
             logger.error(f"Failed to initialize Docker client: {e}")
-            raise
+            logger.info("Attempting fallback initialization...")
+            try:
+                # Fallback to auto-detection
+                self.client = docker.from_env()
+                logger.info("Docker client initialized via from_env()")
+            except DockerException as e2:
+                logger.error(f"Fallback also failed: {e2}")
+                raise
 
     def get_all_containers(self):
         """
