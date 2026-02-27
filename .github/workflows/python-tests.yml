@@ -1,0 +1,78 @@
+name: Python Syntax & Quality Tests
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+  pull_request:
+    branches:
+      - main
+      - develop
+  workflow_dispatch:
+
+jobs:
+  python-tests:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ['3.10', '3.11', '3.12']
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install flake8 pylint
+
+      - name: Check Python syntax
+        run: |
+          echo "🔍 Checking Python syntax..."
+          python -m py_compile main.py
+          python -m py_compile config/config.py
+          python -m py_compile app/__init__.py
+          python -m py_compile app/models.py
+          python -m py_compile app/docker_manager.py
+          python -m py_compile app/backup_engine.py
+          python -m py_compile app/scheduler.py
+          python -m py_compile app/routes.py
+          echo "✅ All Python files have valid syntax"
+
+      - name: Lint with Flake8
+        run: |
+          echo "🔍 Running Flake8 linter..."
+          flake8 main.py config/ app/ --max-line-length=120 --exclude=__pycache__ || true
+          echo "⚠️  Flake8 checks completed (warnings shown above)"
+
+      - name: Check imports
+        run: |
+          echo "🔍 Checking imports..."
+          python -c "from app import create_app, db; from app.models import Container, BackupHistory, BackupConfig; from app.docker_manager import DockerManager; from app.backup_engine import BackupEngine; from app.scheduler import BackupScheduler; print('✅ All imports successful')"
+
+      - name: Verify project structure
+        run: |
+          echo "🔍 Verifying project structure..."
+          test -f main.py && echo "✓ main.py" || exit 1
+          test -f requirements.txt && echo "✓ requirements.txt" || exit 1
+          test -f Dockerfile && echo "✓ Dockerfile" || exit 1
+          test -f docker-compose.yml && echo "✓ docker-compose.yml" || exit 1
+          test -d app && echo "✓ app/" || exit 1
+          test -d config && echo "✓ config/" || exit 1
+          test -d app/templates && echo "✓ app/templates/" || exit 1
+          test -d app/static && echo "✓ app/static/" || exit 1
+          echo "✅ Project structure verified"
+
+      - name: Test complete
+        run: |
+          echo ""
+          echo "╔════════════════════════════════════╗"
+          echo "║  ✅ All tests passed successfully! ║"
+          echo "╚════════════════════════════════════╝"
