@@ -14,21 +14,30 @@ class DockerManager:
     """Wrapper around Docker Python SDK"""
 
     def __init__(self):
-        """Initialize Docker client"""
+        """Initialize Docker client with graceful degradation"""
+        self.client = None
+        self.docker_available = False
+
         try:
             # Try explicit socket path first (more reliable in containers)
             self.client = docker.DockerClient(base_url='unix:///var/run/docker.sock')
+            self.docker_available = True
             logger.info("Docker client initialized successfully (via unix socket)")
-        except (DockerException, Exception) as e:
-            logger.error(f"Failed to initialize Docker client: {e}")
-            logger.info("Attempting fallback initialization...")
+        except Exception as e:
+            logger.warning(f"Docker socket connection failed: {e}")
+            logger.info("Attempting TCP fallback...")
             try:
-                # Fallback to auto-detection
-                self.client = docker.from_env()
-                logger.info("Docker client initialized via from_env()")
-            except DockerException as e2:
-                logger.error(f"Fallback also failed: {e2}")
-                raise
+                # Fallback to TCP
+                self.client = docker.DockerClient(base_url='tcp://127.0.0.1:2375')
+                self.docker_available = True
+                logger.info("Docker client initialized via TCP")
+            except Exception as e2:
+                logger.warning(f"TCP fallback also failed: {e2}")
+                logger.warning("=" * 70)
+                logger.warning("Docker is NOT available - Running in degraded mode!")
+                logger.warning("Bella will start but Docker features are disabled.")
+                logger.warning("=" * 70)
+                self.docker_available = False
 
     def get_all_containers(self):
         """
@@ -37,11 +46,15 @@ class DockerManager:
         Returns:
             List of container objects
         """
+        if not self.docker_available or not self.client:
+            logger.warning("Docker not available - returning empty container list")
+            return []
+
         try:
             containers = self.client.containers.list(all=True)
             logger.debug(f"Retrieved {len(containers)} containers")
             return containers
-        except APIError as e:
+        except Exception as e:
             logger.error(f"Error retrieving containers: {e}")
             return []
 

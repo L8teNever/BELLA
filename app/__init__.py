@@ -45,10 +45,16 @@ def create_app(config_name='development'):
     app.register_blueprint(main_bp)
     app.register_blueprint(api_bp, url_prefix='/api')
 
-    # Initialize Docker manager
-    from app.docker_manager import DockerManager
-    app.docker_manager = DockerManager()
-    logger.info("Docker manager initialized")
+    # Initialize Docker manager (graceful if Docker not available)
+    try:
+        from app.docker_manager import DockerManager
+        app.docker_manager = DockerManager()
+        logger.info("Docker manager initialized")
+    except Exception as e:
+        logger.error(f"Docker manager initialization failed: {e}")
+        logger.warning("Creating dummy Docker manager for graceful degradation")
+        from app.docker_manager import DockerManager
+        app.docker_manager = DockerManager()  # Will run in degraded mode
 
     # Initialize backup engine
     from app.backup_engine import BackupEngine
