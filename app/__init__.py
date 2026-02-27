@@ -35,6 +35,9 @@ def create_app(config_name='development'):
     # Initialize database
     db.init_app(app)
 
+    # IMPORTANT: Import models before creating tables
+    from app.models import Container, BackupHistory, BackupConfig
+
     # Create database tables
     with app.app_context():
         db.create_all()
