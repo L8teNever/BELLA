@@ -18,6 +18,9 @@ COPY . .
 # Create data directory for database
 RUN mkdir -p /app/data
 
+# Make entrypoint script executable
+RUN chmod +x /app/entrypoint.sh
+
 # Expose port
 EXPOSE 5000
 
@@ -25,5 +28,5 @@ EXPOSE 5000
 ENV FLASK_APP=main.py
 ENV PYTHONUNBUFFERED=1
 
-# Start command
-CMD ["python", "main.py"]
+# Use entrypoint script (auto-fixes Docker socket permissions)
+ENTRYPOINT ["/app/entrypoint.sh"]
