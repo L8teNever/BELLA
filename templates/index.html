@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Docker Backup Manager - {{ app_name }}</title>
+    <link rel="stylesheet" href="{{ url_for('static', path='/css/style.css') }}">
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <header class="header">
+            <div class="header-content">
+                <h1>Docker Backup Manager</h1>
+                <p class="subtitle">Verwalte deine Docker Container Backups</p>
+            </div>
+            <div class="system-status">
+                <div id="docker-status" class="status-badge">
+                    <span class="status-dot"></span>
+                    <span class="status-text">Verbindung wird überprüft...</span>
+                </div>
+            </div>
+        </header>
+
+        <!-- Navigation Tabs -->
+        <nav class="nav-tabs">
+            <button class="nav-tab active" data-tab="containers">
+                <span class="icon">🐳</span> Container
+            </button>
+            <button class="nav-tab" data-tab="backups">
+                <span class="icon">💾</span> Backups
+            </button>
+            <button class="nav-tab" data-tab="schedules">
+                <span class="icon">⏰</span> Zeitpläne
+            </button>
+            <button class="nav-tab" data-tab="info">
+                <span class="icon">ℹ️</span> Info
+            </button>
+        </nav>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <!-- Containers Tab -->
+            <section id="containers-tab" class="tab-content active">
+                <div class="section-header">
+                    <h2>Docker Container</h2>
+                    <button id="refresh-containers" class="btn-secondary">Aktualisieren</button>
+                </div>
+                <div class="loading">Lade Container...</div>
+                <div id="containers-list" class="containers-grid"></div>
+            </section>
+
+            <!-- Backups Tab -->
+            <section id="backups-tab" class="tab-content">
+                <div class="section-header">
+                    <h2>Backups verwalten</h2>
+                    <div class="header-actions">
+                        <button id="refresh-backups" class="btn-secondary">Aktualisieren</button>
+                        <button id="upload-backup-btn" class="btn-primary">Hochladen</button>
+                    </div>
+                </div>
+
+                <!-- Upload Section -->
+                <div class="upload-section">
+                    <div id="upload-area" class="upload-area">
+                        <div class="upload-icon">📁</div>
+                        <h3>Backup hochladen</h3>
+                        <p>Ziehe eine ZIP-Datei hierher oder klicke zum Auswählen</p>
+                        <input type="file" id="backup-file-input" accept=".zip" hidden>
+                    </div>
+                </div>
+
+                <!-- Backups Statistics -->
+                <div class="stats-grid">
+                    <div class="stat-card">
+                        <div class="stat-label">Anzahl Backups</div>
+                        <div id="backup-count" class="stat-value">0</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">Gesamtgröße</div>
+                        <div id="backup-size" class="stat-value">0 GB</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">Ältestes Backup</div>
+                        <div id="oldest-backup" class="stat-value">-</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">Neustes Backup</div>
+                        <div id="newest-backup" class="stat-value">-</div>
+                    </div>
+                </div>
+
+                <!-- Backups List -->
+                <div class="loading">Lade Backups...</div>
+                <div id="backups-list" class="backups-table"></div>
+            </section>
+
+            <!-- Schedules Tab -->
+            <section id="schedules-tab" class="tab-content">
+                <div class="section-header">
+                    <h2>Backup-Zeitpläne</h2>
+                    <button id="add-schedule-btn" class="btn-primary">Zeitplan hinzufügen</button>
+                </div>
+
+                <!-- Schedule Form Modal -->
+                <div id="schedule-modal" class="modal hidden">
+                    <div class="modal-content">
+                        <div class="modal-header">
+                            <h3>Neuer Backup-Zeitplan</h3>
+                            <button class="modal-close">&times;</button>
+                        </div>
+                        <form id="schedule-form" class="form">
+                            <div class="form-group">
+                                <label for="schedule-container">Container auswählen</label>
+                                <select id="schedule-container" required>
+                                    <option value="">-- Bitte wählen --</option>
+                                </select>
+                            </div>
+
+                            <div class="form-group">
+                                <label for="schedule-cron">Cron-Expression</label>
+                                <input type="text" id="schedule-cron" placeholder="0 2 * * *" required>
+                                <small>Format: Minute Stunde Tag Monat Wochentag (z.B. '0 2 * * *' = täglich 2:00 Uhr)</small>
+                            </div>
+
+                            <fieldset class="form-group">
+                                <legend>Backup-Inhalt</legend>
+                                <label class="checkbox">
+                                    <input type="checkbox" name="include_volumes" checked>
+                                    Volumes einschließen
+                                </label>
+                                <label class="checkbox">
+                                    <input type="checkbox" name="include_config" checked>
+                                    Konfiguration einschließen
+                                </label>
+                                <label class="checkbox">
+                                    <input type="checkbox" name="include_database" checked>
+                                    Datenbank einschließen
+                                </label>
+                                <label class="checkbox">
+                                    <input type="checkbox" name="include_image">
+                                    Container-Image einschließen
+                                </label>
+                            </fieldset>
+
+                            <div class="form-actions">
+                                <button type="submit" class="btn-primary">Erstellen</button>
+                                <button type="button" class="btn-secondary modal-close">Abbrechen</button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+
+                <!-- Schedules List -->
+                <div class="loading">Lade Zeitpläne...</div>
+                <div id="schedules-list" class="schedules-table"></div>
+            </section>
+
+            <!-- Info Tab -->
+            <section id="info-tab" class="tab-content">
+                <div class="section-header">
+                    <h2>Systeminformationen</h2>
+                </div>
+                <div id="system-info" class="info-grid"></div>
+            </section>
+        </main>
+
+        <!-- Notifications -->
+        <div id="notifications" class="notifications-container"></div>
+    </div>
+
+    <!-- Restore Modal -->
+    <div id="restore-modal" class="modal hidden">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>Backup wiederherstellen</h3>
+                <button class="modal-close">&times;</button>
+            </div>
+            <form id="restore-form" class="form">
+                <input type="hidden" id="restore-filename">
+
+                <div class="form-group">
+                    <label for="restore-path">Zielverzeichnis</label>
+                    <input type="text" id="restore-path" placeholder="/path/to/restore" required>
+                </div>
+
+                <fieldset class="form-group">
+                    <legend>Wiederherstellung</legend>
+                    <label class="checkbox">
+                        <input type="checkbox" name="restore_volumes" checked>
+                        Volumes wiederherstellen
+                    </label>
+                    <label class="checkbox">
+                        <input type="checkbox" name="restore_config">
+                        Konfiguration wiederherstellen
+                    </label>
+                    <label class="checkbox">
+                        <input type="checkbox" name="restore_database">
+                        Datenbank wiederherstellen
+                    </label>
+                </fieldset>
+
+                <div class="form-actions">
+                    <button type="submit" class="btn-primary">Wiederherstellen</button>
+                    <button type="button" class="btn-secondary modal-close">Abbrechen</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script src="{{ url_for('static', path='/js/app.js') }}"></script>
+</body>
+</html>
