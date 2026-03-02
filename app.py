@@ -21,12 +21,13 @@ logger = logging.getLogger(__name__)
 app = Flask(__name__)
 
 # Docker Setup
+client = None
 try:
     client = docker.from_env()
     logger.info("Docker client initialized successfully")
 except Exception as e:
     logger.error(f"Failed to initialize Docker client: {e}")
-    raise
+    logger.warning("Docker client is not available. Some features will not work.")
 
 # Configuration
 BACKUP_DIR = '/app/backups'
@@ -79,6 +80,9 @@ def translate_windows_path(host_path: str) -> str:
 def perform_backup(container_id: str, container_name: str) -> None:
     """Perform a backup of a Docker container."""
     logger.info(f"Starting backup for {container_name} ({container_id})")
+    if not client:
+        logger.error("Docker client not available")
+        return
     try:
         container = client.containers.get(container_id)
 
@@ -509,6 +513,9 @@ def restore_backup() -> Tuple[Dict, int]:
 @app.route('/api/containers')
 def get_containers() -> Tuple[Dict, int]:
     """Get list of all Docker containers."""
+    if not client:
+        logger.warning("Docker client not available, returning empty container list")
+        return jsonify([]), 200
     try:
         containers = client.containers.list(all=True)
         container_data: List[Dict[str, Any]] = []
