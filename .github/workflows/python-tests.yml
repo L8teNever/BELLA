@@ -36,24 +36,25 @@ jobs:
       - name: Check Python syntax
         run: |
           echo "Checking Python syntax..."
-          python -m py_compile app.py
+          find app -name "*.py" -exec python -m py_compile {} \;
           echo "[OK] All Python files have valid syntax"
 
       - name: Lint with Flake8
         run: |
           echo "Running Flake8 linter..."
-          flake8 app.py --max-line-length=120 --exclude=__pycache__ || true
+          flake8 app --max-line-length=120 --exclude=__pycache__ || true
           echo "[WARN] Flake8 checks completed (warnings shown above)"
 
       - name: Check imports
         run: |
           echo "Checking imports..."
-          python -c "import flask; import docker; import apscheduler; print('[OK] All imports successful')"
+          python -c "import fastapi; import docker; import apscheduler; print('[OK] All imports successful')"
 
       - name: Verify project structure
         run: |
           echo "Verifying project structure..."
-          test -f app.py && echo "[OK] app.py" || exit 1
+          test -d app && echo "[OK] app/" || exit 1
+          test -f app/main.py && echo "[OK] app/main.py" || exit 1
           test -f requirements.txt && echo "[OK] requirements.txt" || exit 1
           test -f Dockerfile && echo "[OK] Dockerfile" || exit 1
           test -f docker-compose.yml && echo "[OK] docker-compose.yml" || exit 1
