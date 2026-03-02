@@ -2,7 +2,7 @@ version: '3.8'
 
 services:
   bella-watcher:
-    image: l8tenever/bella:latest
+    build: .
     container_name: bella-watcher
     ports:
       - "5000:5000"
