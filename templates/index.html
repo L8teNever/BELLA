@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -124,10 +125,25 @@
             text-transform: uppercase;
         }
 
-        .status-running { background: rgba(34, 197, 94, 0.2); color: #4ade80; }
-        .status-exited { background: rgba(239, 68, 68, 0.2); color: #f87171; }
-        .status-paused { background: rgba(234, 179, 8, 0.2); color: #fbbf24; }
-        .status-other { background: rgba(148, 163, 184, 0.2); color: #94a3b8; }
+        .status-running {
+            background: rgba(34, 197, 94, 0.2);
+            color: #4ade80;
+        }
+
+        .status-exited {
+            background: rgba(239, 68, 68, 0.2);
+            color: #f87171;
+        }
+
+        .status-paused {
+            background: rgba(234, 179, 8, 0.2);
+            color: #fbbf24;
+        }
+
+        .status-other {
+            background: rgba(148, 163, 184, 0.2);
+            color: #94a3b8;
+        }
 
         .image-name {
             font-size: 0.875rem;
@@ -154,7 +170,98 @@
             align-items: center;
             gap: 0.5rem;
         }
-        
+
+        .mounts-section {
+            margin-top: 1rem;
+            font-size: 0.75rem;
+            background: rgba(0, 0, 0, 0.2);
+            padding: 0.8rem;
+            border-radius: 0.5rem;
+        }
+
+        .mounts-section ul {
+            margin: 0.5rem 0 0 0;
+            padding-left: 1.2rem;
+            list-style: none;
+        }
+
+        .mounts-section li {
+            margin-bottom: 0.4rem;
+            word-break: break-all;
+            opacity: 0.8;
+            position: relative;
+        }
+
+        .mounts-section li::before {
+            content: '→';
+            position: absolute;
+            left: -1.2rem;
+            color: var(--accent-color);
+        }
+
+        .path-label {
+            color: var(--accent-color);
+            font-weight: 600;
+        }
+
+        .compose-toggle {
+            margin-top: 1rem;
+            background: linear-gradient(to right, #38bdf8, #818cf8);
+            border: none;
+            color: white;
+            padding: 0.6rem 1.2rem;
+            border-radius: 0.5rem;
+            cursor: pointer;
+            font-weight: 600;
+            transition: opacity 0.2s;
+        }
+
+        .compose-toggle:hover {
+            opacity: 0.9;
+        }
+
+        /* Modal Styles */
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 100;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.8);
+            backdrop-filter: blur(5px);
+        }
+
+        .modal-content {
+            background-color: #1e293b;
+            margin: 5% auto;
+            padding: 2rem;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            width: 80%;
+            max-width: 800px;
+            border-radius: 1rem;
+            max-height: 80vh;
+            overflow-y: auto;
+        }
+
+        .close-modal {
+            color: #aaa;
+            float: right;
+            font-size: 28px;
+            font-weight: bold;
+            cursor: pointer;
+        }
+
+        pre {
+            background: #0f172a;
+            padding: 1rem;
+            border-radius: 0.5rem;
+            color: #4ade80;
+            font-family: 'Consolas', monospace;
+            overflow-x: auto;
+        }
+
         .loading {
             text-align: center;
             margin-top: 5rem;
@@ -168,13 +275,23 @@
         }
     </style>
 </head>
+
 <body>
     <div class="background-blob blob-1"></div>
     <div class="background-blob blob-2"></div>
 
     <header>
         <h1>Docker Watcher Dashboard</h1>
+        <button id="view-compose-btn" class="compose-toggle">Docker Compose anzeigen</button>
     </header>
+
+    <div id="compose-modal" class="modal">
+        <div class="modal-content">
+            <span class="close-modal">&times;</span>
+            <h2>docker-compose.yml</h2>
+            <pre id="compose-content"></pre>
+        </div>
+    </div>
 
     <main id="app">
         <div id="loading" class="loading">Suchen nach Containern...</div>
@@ -182,11 +299,32 @@
     </main>
 
     <script>
+        // Modal Logic
+        const modal = document.getElementById("compose-modal");
+        const btn = document.getElementById("view-compose-btn");
+        const span = document.getElementsByClassName("close-modal")[0];
+
+        btn.onclick = async function () {
+            try {
+                const res = await fetch('/api/compose-config');
+                const data = await res.json();
+                document.getElementById('compose-content').textContent = data.content;
+                modal.style.display = "block";
+            } catch (e) {
+                alert("Fehler beim Laden der Compose-Datei");
+            }
+        }
+
+        span.onclick = function () { modal.style.display = "none"; }
+        window.onclick = function (event) {
+            if (event.target == modal) { modal.style.display = "none"; }
+        }
+
         async function fetchContainers() {
             try {
                 const response = await fetch('/api/containers');
                 const containers = await response.json();
-                
+
                 if (containers.error) {
                     console.error('Error fetching containers:', containers.error);
                     return;
@@ -207,9 +345,18 @@
             containers.forEach(container => {
                 const card = document.createElement('div');
                 card.className = 'container-card';
-                
+
                 const statusClass = `status-${container.status.toLowerCase()}` || 'status-other';
-                
+
+                let mountsHtml = '';
+                if (container.mounts && container.mounts.length > 0) {
+                    mountsHtml = '<div class="mounts-section"><strong>Mounts/Paths:</strong><ul>';
+                    container.mounts.forEach(m => {
+                        mountsHtml += `<li><span class="path-label">Host:</span> ${m.source} <br> <span class="path-label">Container:</span> ${m.destination}</li>`;
+                    });
+                    mountsHtml += '</ul></div>';
+                }
+
                 card.innerHTML = `
                     <div class="card-header">
                         <span class="container-name">${container.name}</span>
@@ -217,6 +364,7 @@
                     </div>
                     <div class="image-name">${container.image}</div>
                     <div class="container-id">ID: ${container.id}</div>
+                    ${mountsHtml}
                     <div class="uptime">
                         <span>Started: ${new Date(container.uptime).toLocaleString()}</span>
                     </div>
@@ -231,4 +379,5 @@
         setInterval(fetchContainers, 5000);
     </script>
 </body>
+
 </html>
