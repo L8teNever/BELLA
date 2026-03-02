@@ -214,6 +214,81 @@
             font-weight: 600;
         }
 
+        .compose-toggle {
+            background: linear-gradient(to right, #38bdf8, #818cf8);
+            border: none;
+            color: white;
+            padding: 0.6rem 1.2rem;
+            border-radius: 0.5rem;
+            cursor: pointer;
+            font-weight: 600;
+            transition: opacity 0.2s, transform 0.1s;
+            font-family: inherit;
+            font-size: 1rem;
+        }
+
+        .compose-toggle:hover {
+            opacity: 0.9;
+            transform: translateY(-1px);
+        }
+
+        .compose-toggle:disabled {
+            opacity: 0.5 !important;
+            cursor: not-allowed !important;
+            transform: none !important;
+        }
+
+        /* Modal Styles */
+        .modal {
+            position: fixed;
+            z-index: 100;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.7);
+            backdrop-filter: blur(5px);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.2s;
+        }
+
+        .modal.show {
+            opacity: 1;
+            pointer-events: auto;
+        }
+
+        .modal-content {
+            background-color: #1e293b;
+            padding: 2.5rem;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            width: 80%;
+            max-width: 450px;
+            border-radius: 1.5rem;
+            max-height: 80vh;
+            overflow-y: auto;
+            position: relative;
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+        }
+
+        .close-modal {
+            color: #94a3b8;
+            position: absolute;
+            top: 1rem;
+            right: 1.5rem;
+            font-size: 28px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: color 0.2s;
+        }
+
+        .close-modal:hover {
+            color: #fff;
+        }
+
         .loading {
             text-align: center;
             margin-top: 5rem;
@@ -317,9 +392,9 @@
         const backupSelectedBtn = document.getElementById("backup-selected-btn");
         const closeBackupModal = document.getElementById("close-backup-modal");
 
-        backupSelectedBtn.onclick = () => { backupModal.style.display = "block"; }
-        closeBackupModal.onclick = () => { backupModal.style.display = "none"; }
-        window.onclick = (event) => { if (event.target == backupModal) { backupModal.style.display = "none"; } }
+        backupSelectedBtn.onclick = () => { backupModal.classList.add("show"); }
+        closeBackupModal.onclick = () => { backupModal.classList.remove("show"); }
+        window.onclick = (event) => { if (event.target == backupModal) { backupModal.classList.remove("show"); } }
 
         function toggleSelection(containerId, containerName) {
             const strValue = JSON.stringify([containerId, containerName]);
@@ -348,7 +423,7 @@
                 });
                 const data = await res.json();
                 alert(data.message || 'Backup gestartet');
-                backupModal.style.display = "none";
+                backupModal.classList.remove("show");
                 selectedContainers.clear();
                 toggleSelection('', ''); // reset button state
                 fetchContainers();
@@ -370,7 +445,7 @@
                 });
                 const data = await res.json();
                 alert(data.message || 'Zeitplan erstellt');
-                backupModal.style.display = "none";
+                backupModal.classList.remove("show");
                 selectedContainers.clear();
                 toggleSelection('', ''); // reset button state
                 fetchContainers();
