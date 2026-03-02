@@ -1,6 +1,7 @@
 import os
 import shutil
 import threading
+import json
 from datetime import datetime
 from flask import Flask, render_template, jsonify, request, send_file
 import docker
@@ -34,34 +35,44 @@ def perform_backup(container_id, container_name):
             for mount in container.attrs['Mounts']:
                 if 'Source' in mount:
                     host_path = mount['Source']
-                    # Translate host path to container path via /hostfs
-                    # Remove leading drive letters manually if they exist (e.g., C:\)
+                    
+                    # Custom translation for Windows/WSL hosts to the /hostfs root mount:
+                    # Windows paths in docker often look like /run/desktop/mnt/host/wsl/docker-desktop-bind-mounts...
+                    # Or they look like C:\Users\... or /c/Users/...
+                    translated_path = host_path
                     if host_path.find(':\\') != -1:
-                        host_path = host_path.split(':\\', 1)[1]
-                        host_path = host_path.replace('\\', '/')
-                        # On Windows host, the Docker daemon might represent paths differently.
-                        # Assuming a Linux-like path structure for Docker Desktop WSL2:
-                        # Sometimes paths are /run/desktop/mnt/host/c/...
-                        
-                        # Note: Simple path translation for standard Linux hosts:
+                        # Drive letter handling "C:\Path" -> "/hostfs/c/Path" (often mounted like this in some systems)
+                        # Or simply we strip C:\ and append to hostfs
+                        parts = host_path.split(':\\', 1)
+                        translated_path = os.path.join(HOST_PREFIX, parts[1].replace('\\', '/').lstrip('/'))
+                    elif host_path.startswith('/'):
+                        # Already unix-like path, prepend hostfs
                         translated_path = os.path.join(HOST_PREFIX, host_path.lstrip('/'))
-                    else:
-                        translated_path = os.path.join(HOST_PREFIX, host_path.lstrip('/'))
+                    
+                    print(f"Checking mount: {host_path} -> Translates to: {translated_path}")
                     
                     if os.path.exists(translated_path):
                         paths_to_backup.append(translated_path)
+                    elif os.path.exists(host_path): # fallback if internal docker path is identical
+                        paths_to_backup.append(host_path)
 
         # Compose project working dir
         labels = container.labels
         working_dir = labels.get('com.docker.compose.project.working_dir')
         if working_dir:
-            # Add compose dir as well
+            translated_working_dir = working_dir
             if working_dir.find(':\\') != -1:
-                working_dir = working_dir.split(':\\', 1)[1]
-                working_dir = working_dir.replace('\\', '/')
-            t_working_dir = os.path.join(HOST_PREFIX, working_dir.lstrip('/'))
-            if os.path.exists(t_working_dir) and t_working_dir not in paths_to_backup:
-                 paths_to_backup.append(t_working_dir)
+                parts = working_dir.split(':\\', 1)
+                translated_working_dir = os.path.join(HOST_PREFIX, parts[1].replace('\\', '/').lstrip('/'))
+            elif working_dir.startswith('/'):
+                translated_working_dir = os.path.join(HOST_PREFIX, working_dir.lstrip('/'))
+                
+            print(f"Checking compose dir: {working_dir} -> Translates to: {translated_working_dir}")
+            
+            if os.path.exists(translated_working_dir) and translated_working_dir not in paths_to_backup:
+                 paths_to_backup.append(translated_working_dir)
+            elif os.path.exists(working_dir) and working_dir not in paths_to_backup:
+                 paths_to_backup.append(working_dir)
 
         # 3. Create zip archive
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
@@ -69,15 +80,28 @@ def perform_backup(container_id, container_name):
         os.makedirs(temp_dir, exist_ok=True)
         
         # Copy data
+        print(f"Paths to backup: {paths_to_backup}")
         for path in paths_to_backup:
             basename = os.path.basename(path)
             dest = os.path.join(temp_dir, basename)
+            print(f"Copying {path} to {dest}")
             if os.path.isdir(path):
                 shutil.copytree(path, dest, dirs_exist_ok=True)
             elif os.path.isfile(path):
                 shutil.copy2(path, dest)
                 
         # Zip it
+        meta_data = {
+            "tool": "BELLA Docker Watcher",
+            "version": "1.0",
+            "container_name": container_name,
+            "container_id": container_id,
+            "timestamp": timestamp,
+            "original_paths": paths_to_backup
+        }
+        with open(os.path.join(temp_dir, "bella_metadata.json"), "w") as f:
+            json.dump(meta_data, f, indent=4)
+            
         archive_name = os.path.join(BACKUP_DIR, f"backup_{container_name}_{timestamp}")
         shutil.make_archive(archive_name, 'zip', temp_dir)
         
@@ -219,10 +243,21 @@ def restore_backup_server():
         os.makedirs(container_dest, exist_ok=True)
         
         import zipfile
+        is_bella_backup = False
+        meta_info = None
+        
         with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+            if 'bella_metadata.json' in zip_ref.namelist():
+                is_bella_backup = True
+                with zip_ref.open('bella_metadata.json') as f:
+                    meta_info = json.load(f)
             zip_ref.extractall(container_dest)
             
-        return jsonify({'message': f'Backup erfolgreich nach {target_path} extrahiert!'})
+        success_msg = f'Backup erfolgreich nach {target_path} extrahiert!'
+        if is_bella_backup and meta_info:
+            success_msg = f'[BELLA Backup Verifiziert] Backup von Container "{meta_info.get("container_name")}" ({meta_info.get("timestamp")}) erfolgreich nach {target_path} extrahiert!'
+            
+        return jsonify({'message': success_msg})
     except Exception as e:
         import traceback
         print(traceback.format_exc())
@@ -246,7 +281,15 @@ def restore_backup():
             temp_extract_dir = os.path.join(BACKUP_DIR, 'temp_restore_' + datetime.now().strftime('%Y%m%d%H%M%S'))
             os.makedirs(temp_extract_dir, exist_ok=True)
             import zipfile
+            
+            is_bella_backup = False
+            meta_info = None
+            
             with zipfile.ZipFile(upload_path, 'r') as zip_ref:
+                if 'bella_metadata.json' in zip_ref.namelist():
+                    is_bella_backup = True
+                    with zip_ref.open('bella_metadata.json') as f:
+                        meta_info = json.load(f)
                 zip_ref.extractall(temp_extract_dir)
 
             # 3. Figure out where properties belong (this requires manual intervention or heuristics)
@@ -279,7 +322,11 @@ def restore_backup():
                  host_restore_path = f"C:\\{host_restore_path.lstrip('/')}"
                  host_restore_path = host_restore_path.replace('/', '\\')
 
-            return jsonify({'message': f'Leider kann Docker Watcher die Dateien nicht 100% automatisch an die exakten Ursprungsorte zurücklegen, da die Rechte und Pfade variieren. Die Backup-Dateien wurden erfolgreich auf dem Host unter {host_restore_path} (bzw. dem gemounteten Root-Verzeichnis) wiederhergestellt. Bitte verschiebe sie von dort in das finale Zielverzeichnis.'})
+            msg = f'Die Dateien wurden auf dem Host unter {host_restore_path} abgelegt. Bitte manuell an den Zielort verschieben.'
+            if is_bella_backup and meta_info:
+                msg = f'[BELLA VERIFIZIERT] Container: {meta_info.get("container_name")}. ' + msg
+                
+            return jsonify({'message': msg})
 
         except Exception as e:
             import traceback
