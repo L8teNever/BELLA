@@ -14,7 +14,7 @@ def get_containers():
         containers = client.containers.list(all=True)
         container_data = []
         for c in containers:
-            # Versuche, den Mount-Pfad (Source) zu finden
+            # Mounts
             mounts = []
             if 'Mounts' in c.attrs:
                 for m in c.attrs['Mounts']:
@@ -23,30 +23,29 @@ def get_containers():
                         'destination': m.get('Destination', 'N/A')
                     })
 
+            # Docker Compose Labels extrahieren
+            labels = c.labels
+            compose_info = {
+                'project': labels.get('com.docker.compose.project', 'N/A'),
+                'service': labels.get('com.docker.compose.service', 'N/A'),
+                'version': labels.get('com.docker.compose.version', 'N/A'),
+                'config_files': labels.get('com.docker.compose.project.config_files', 'N/A'),
+                'working_dir': labels.get('com.docker.compose.project.working_dir', 'N/A')
+            }
+
             container_data.append({
                 'id': c.short_id,
                 'name': c.name,
                 'status': c.status,
                 'image': c.image.tags[0] if c.image.tags else "None",
                 'uptime': c.attrs.get('State', {}).get('StartedAt', 'N/A'),
-                'mounts': mounts
+                'mounts': mounts,
+                'compose': compose_info
             })
         return jsonify(container_data)
     except Exception as e:
         import traceback
         print(traceback.format_exc())
-        return jsonify({'error': str(e)}), 500
-
-@app.route('/api/compose-config')
-def get_compose_config():
-    try:
-        import os
-        compose_path = 'docker-compose.yml'
-        if os.path.exists(compose_path):
-            with open(compose_path, 'r') as f:
-                return jsonify({'content': f.read()})
-        return jsonify({'content': 'Keine docker-compose.yml gefunden.'})
-    except Exception as e:
         return jsonify({'error': str(e)}), 500
 
 if __name__ == '__main__':
