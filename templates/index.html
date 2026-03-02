@@ -73,6 +73,7 @@
             font-weight: 600;
             background: linear-gradient(to right, #38bdf8, #818cf8);
             -webkit-background-clip: text;
+            background-clip: text;
             -webkit-text-fill-color: transparent;
         }
 
@@ -510,8 +511,13 @@
             list.innerHTML = '';
 
             if (backups.length === 0) {
-                list.style.display = 'block';
-                list.innerHTML = '<div style="text-align: center; opacity: 0.5;">Keine Backups gefunden.</div>';
+                list.style.display = 'grid';
+                list.innerHTML = `
+                    <div class="container-card" style="grid-column: 1 / -1; text-align: center; padding: 3rem;">
+                        <svg style="width: 4rem; height: 4rem; margin: 0 auto 1rem auto; opacity: 0.3;" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4"></path></svg>
+                        <h3 style="margin: 0 0 1rem 0; font-size: 1.5rem; opacity: 0.8;">Keine Backups gefunden</h3>
+                        <p style="opacity: 0.6; margin: 0;">Es wurden noch keine Sicherungen erstellt. Wähle im Container-Tab einen Container aus, um dein erstes Backup zu erstellen.</p>
+                    </div>`;
                 return;
             }
 
@@ -524,9 +530,35 @@
                     </div>
                     <div class="status-badge status-other" style="display: inline-block; margin-bottom: 1rem;">${backup.size_mb} MB</div>
                     <div class="uptime">Erstellt am: ${new Date(backup.date).toLocaleString()}</div>
+                    <div style="margin-top: 1.5rem; display: flex; gap: 0.5rem; flex-wrap: wrap;">
+                        <button class="compose-toggle" style="padding: 0.4rem 0.8rem; font-size: 0.8rem; background: linear-gradient(to right, #10b981, #059669);" onclick="downloadBackup('${backup.name}')">Download</button>
+                        <button class="compose-toggle" style="padding: 0.4rem 0.8rem; font-size: 0.8rem; background: linear-gradient(to right, #f59e0b, #d97706);" onclick="restoreToPath('${backup.name}')">Extrahieren nach Pfad</button>
+                    </div>
                 `;
                 list.appendChild(item);
             });
+        }
+
+        function downloadBackup(filename) {
+            window.location.href = '/api/backup/download/' + filename;
+        }
+
+        async function restoreToPath(filename) {
+            const targetPath = prompt("Bitte gib den absoluten Zielpfad auf dem Host-Server ein (z.B. C:\\temp\\restore oder /opt/restore):");
+            if (!targetPath) return;
+
+            try {
+                alert("Restaurierung wird gestartet... Bitte warten.");
+                const res = await fetch('/api/backup/restore_server', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ filename: filename, target_path: targetPath })
+                });
+                const data = await res.json();
+                alert(data.message || data.error);
+            } catch (e) {
+                alert("Ein Fehler ist beim Extrahieren aufgetreten.");
+            }
         }
 
         function renderContainers(containers) {

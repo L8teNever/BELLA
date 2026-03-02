@@ -2,7 +2,7 @@ import os
 import shutil
 import threading
 from datetime import datetime
-from flask import Flask, render_template, jsonify, request
+from flask import Flask, render_template, jsonify, request, send_file
 import docker
 from apscheduler.schedulers.background import BackgroundScheduler
 
@@ -156,6 +156,46 @@ def list_backups():
                 })
     backups.sort(key=lambda x: x['date'], reverse=True)
     return jsonify(backups)
+
+@app.route('/api/backup/download/<filename>', methods=['GET'])
+def download_backup(filename):
+    path = os.path.join(BACKUP_DIR, filename)
+    if os.path.exists(path) and filename.endswith('.zip'):
+        return send_file(path, as_attachment=True)
+    return jsonify({'error': 'File not found'}), 404
+
+@app.route('/api/backup/restore_server', methods=['POST'])
+def restore_backup_server():
+    data = request.json
+    filename = data.get('filename')
+    target_path = data.get('target_path')
+    
+    if not filename or not target_path:
+        return jsonify({'error': 'Filename and target_path required'}), 400
+        
+    zip_path = os.path.join(BACKUP_DIR, filename)
+    if not os.path.exists(zip_path) or not filename.endswith('.zip'):
+        return jsonify({'error': 'Backup file not found'}), 404
+        
+    try:
+        # Translate host path to container path via /hostfs
+        translated_path = target_path
+        if translated_path.find(':\\') != -1:
+            translated_path = translated_path.split(':\\', 1)[1]
+            translated_path = translated_path.replace('\\', '/')
+        
+        container_dest = os.path.join(HOST_PREFIX, translated_path.lstrip('/'))
+        os.makedirs(container_dest, exist_ok=True)
+        
+        import zipfile
+        with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+            zip_ref.extractall(container_dest)
+            
+        return jsonify({'message': f'Backup erfolgreich nach {target_path} extrahiert!'})
+    except Exception as e:
+        import traceback
+        print(traceback.format_exc())
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/api/restore', methods=['POST'])
 def restore_backup():
