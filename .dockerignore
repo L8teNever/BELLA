@@ -1,0 +1,46 @@
+# Git
+.git
+.gitignore
+.github
+
+# Python
+__pycache__
+*.pyc
+*.pyo
+*.egg-info
+.Python
+.pytest_cache
+.coverage
+dist
+build
+
+# IDE
+.vscode
+.idea
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+.env
+
+# Project
+backups/*
+!backups/.gitkeep
+logs/*
+!logs/.gitkeep
+
+# Docker
+Dockerfile
+docker-compose*.yml
+.dockerignore
+
+# Documentation
+README.md
+ANLEITUNG.md
+PROJEKTÜBERSICHT.md
+
+# CI/CD
+.github
