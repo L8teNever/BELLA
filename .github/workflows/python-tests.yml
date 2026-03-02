@@ -35,35 +35,33 @@ jobs:
 
       - name: Check Python syntax
         run: |
-          echo "🔍 Checking Python syntax..."
+          echo "Checking Python syntax..."
           python -m py_compile app.py
-          echo "✅ All Python files have valid syntax"
+          echo "[OK] All Python files have valid syntax"
 
       - name: Lint with Flake8
         run: |
-          echo "🔍 Running Flake8 linter..."
+          echo "Running Flake8 linter..."
           flake8 app.py --max-line-length=120 --exclude=__pycache__ || true
-          echo "⚠️  Flake8 checks completed (warnings shown above)"
+          echo "[WARN] Flake8 checks completed (warnings shown above)"
 
       - name: Check imports
         run: |
-          echo "🔍 Checking imports..."
-          python -c "import flask; import docker; import apscheduler; print('✅ All imports successful')"
+          echo "Checking imports..."
+          python -c "import flask; import docker; import apscheduler; print('[OK] All imports successful')"
 
       - name: Verify project structure
         run: |
-          echo "🔍 Verifying project structure..."
-          test -f app.py && echo "✓ app.py" || exit 1
-          test -f requirements.txt && echo "✓ requirements.txt" || exit 1
-          test -f Dockerfile && echo "✓ Dockerfile" || exit 1
-          test -f docker-compose.yml && echo "✓ docker-compose.yml" || exit 1
-          test -d templates && echo "✓ templates/" || exit 1
-          test -d static && echo "✓ static/" || exit 1
-          echo "✅ Project structure verified"
+          echo "Verifying project structure..."
+          test -f app.py && echo "[OK] app.py" || exit 1
+          test -f requirements.txt && echo "[OK] requirements.txt" || exit 1
+          test -f Dockerfile && echo "[OK] Dockerfile" || exit 1
+          test -f docker-compose.yml && echo "[OK] docker-compose.yml" || exit 1
+          test -d templates && echo "[OK] templates/" || exit 1
+          test -d static && echo "[OK] static/" || exit 1
+          echo "[OK] Project structure verified"
 
       - name: Test complete
         run: |
           echo ""
-          echo "╔════════════════════════════════════╗"
-          echo "║  ✅ All tests passed successfully! ║"
-          echo "╚════════════════════════════════════╝"
+          echo "[OK] All tests passed successfully!"
