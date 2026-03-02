@@ -1,0 +1,44 @@
+services:
+  docker-backup-manager:
+    image: ghcr.io/l8tenever/bella:latest
+    pull_policy: always
+    container_name: docker-backup-manager
+    ports:
+      - "8000:8000"
+    volumes:
+      # Mount Docker socket for container access
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      # Mount backup directory for persistent storage
+      - backup-data:/app/backups
+      # Mount logs directory
+      - log-data:/app/logs
+    environment:
+      - DEBUG=False
+      - BACKUP_RETENTION_DAYS=30
+      - SCHEDULER_TIMEZONE=UTC
+      - MAX_BACKUP_SIZE=10737418240
+      - COMPRESS_LEVEL=6
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 5s
+    networks:
+      - docker-backup-network
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "5"
+
+volumes:
+  backup-data:
+    driver: local
+  log-data:
+    driver: local
+
+networks:
+  docker-backup-network:
+    driver: bridge
