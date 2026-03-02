@@ -364,6 +364,29 @@
         </div>
     </div>
 
+    <!-- File Browser Modal -->
+    <div id="fs-modal" class="modal">
+        <div class="modal-content" style="max-width: 500px; text-align: left;">
+            <span class="close-modal" id="close-fs-modal">&times;</span>
+            <h2 style="margin-top:0;">Zielordner auswählen</h2>
+            <div
+                style="background: rgba(0,0,0,0.3); padding: 0.5rem; border-radius: 0.5rem; margin-bottom: 1rem; display: flex; align-items: center; gap: 0.5rem;">
+                <button id="fs-up-btn" class="compose-toggle"
+                    style="padding: 0.2rem 0.5rem; font-size: 1rem;">&#8673;</button>
+                <div id="fs-current-path" style="flex: 1; word-break: break-all; opacity: 0.8; font-family: monospace;">
+                    /</div>
+            </div>
+            <div id="fs-list"
+                style="max-height: 400px; overflow-y: auto; display: flex; flex-direction: column; gap: 0.2rem; margin-bottom: 1rem; background: rgba(0,0,0,0.2); padding: 0.5rem; border-radius: 0.5rem;">
+                <!-- Folders go here -->
+            </div>
+            <div style="text-align: right;">
+                <button id="fs-select-btn" class="compose-toggle"
+                    style="background: linear-gradient(to right, #10b981, #059669);">Hierhin extrahieren</button>
+            </div>
+        </div>
+    </div>
+
     <script>
         let selectedContainers = new Set();
 
@@ -543,23 +566,95 @@
             window.location.href = '/api/backup/download/' + filename;
         }
 
-        async function restoreToPath(filename) {
-            const targetPath = prompt("Bitte gib den absoluten Zielpfad auf dem Host-Server ein (z.B. C:\\temp\\restore oder /opt/restore):");
-            if (!targetPath) return;
+        let activeExtractFilename = '';
+        let currentExtractPath = '/';
+
+        const fsModal = document.getElementById('fs-modal');
+        const closeFsModal = document.getElementById('close-fs-modal');
+        const fsUpBtn = document.getElementById('fs-up-btn');
+        const fsCurrentPath = document.getElementById('fs-current-path');
+        const fsList = document.getElementById('fs-list');
+        const fsSelectBtn = document.getElementById('fs-select-btn');
+
+        closeFsModal.onclick = () => { fsModal.classList.remove('show'); }
+        fsUpBtn.onclick = () => { navigateFs('UP'); }
+
+        async function navigateFs(target) {
+            let reqPath = target;
+            if (target === 'UP') {
+                reqPath = currentExtractPath.split('/').filter(Boolean).slice(0, -1).join('/') || '/';
+                reqPath = reqPath.startsWith('/') ? reqPath : '/' + reqPath;
+            } else if (target !== '/') {
+                const base = currentExtractPath.endsWith('/') ? currentExtractPath.slice(0, -1) : currentExtractPath;
+                reqPath = base + '/' + target;
+            }
 
             try {
+                fsList.innerHTML = '<div style="text-align: center; padding: 1rem; opacity: 0.5;">Lade...</div>';
+                const res = await fetch('/api/fs/list', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ path: reqPath })
+                });
+                const data = await res.json();
+
+                if (data.error) {
+                    alert(data.error);
+                    fsList.innerHTML = `<div style="color: red; padding: 1rem;">Fehler: ${data.error}</div>`;
+                    return;
+                }
+
+                currentExtractPath = data.path;
+                fsCurrentPath.innerText = currentExtractPath;
+                fsList.innerHTML = '';
+
+                data.folders.forEach(folder => {
+                    const fDiv = document.createElement('div');
+                    fDiv.style.padding = '0.5rem';
+                    fDiv.style.cursor = 'pointer';
+                    fDiv.style.borderRadius = '0.25rem';
+                    fDiv.className = 'fs-folder';
+                    fDiv.innerHTML = `📁 ${folder}`;
+                    fDiv.onclick = () => navigateFs(folder);
+                    fDiv.onmouseover = () => fDiv.style.background = 'rgba(255,255,255,0.1)';
+                    fDiv.onmouseout = () => fDiv.style.background = 'transparent';
+                    fsList.appendChild(fDiv);
+                });
+
+                if (data.folders.length === 0) {
+                    fsList.innerHTML = '<div style="text-align: center; padding: 1rem; opacity: 0.5;">Leer</div>';
+                }
+            } catch (e) {
+                alert("Fehler beim Laden des Verzeichnisses");
+            }
+        }
+
+        async function restoreToPath(filename) {
+            activeExtractFilename = filename;
+            currentExtractPath = '/';
+            navigateFs('/');
+            fsModal.classList.add('show');
+        }
+
+        fsSelectBtn.onclick = async () => {
+            if (!activeExtractFilename || !currentExtractPath) return;
+
+            if (!confirm(`Soll das Backup "${activeExtractFilename}" wirklich nach ${currentExtractPath} entpackt werden?`)) return;
+
+            try {
+                fsModal.classList.remove('show');
                 alert("Restaurierung wird gestartet... Bitte warten.");
                 const res = await fetch('/api/backup/restore_server', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ filename: filename, target_path: targetPath })
+                    body: JSON.stringify({ filename: activeExtractFilename, target_path: currentExtractPath })
                 });
                 const data = await res.json();
                 alert(data.message || data.error);
             } catch (e) {
                 alert("Ein Fehler ist beim Extrahieren aufgetreten.");
             }
-        }
+        };
 
         function renderContainers(containers) {
             const list = document.getElementById('container-list');

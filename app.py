@@ -157,6 +157,37 @@ def list_backups():
     backups.sort(key=lambda x: x['date'], reverse=True)
     return jsonify(backups)
 
+@app.route('/api/fs/list', methods=['POST'])
+def list_fs():
+    data = request.json
+    path = data.get('path', '/') 
+    
+    # Ensure path starts with /
+    if not path.startswith('/'):
+        path = '/' + path
+        
+    full_path = os.path.abspath(os.path.join(HOST_PREFIX, path.lstrip('/')))
+    
+    # Security: path traversal outside HOST_PREFIX is guarded by abspath and startswith
+    if not full_path.startswith(HOST_PREFIX):
+        return jsonify({'error': 'Invalid path'}), 400
+        
+    try:
+        folders = []
+        for item in os.listdir(full_path):
+            item_full = os.path.join(full_path, item)
+            if os.path.isdir(item_full):
+                folders.append(item)
+        folders.sort()
+        
+        parent_path = os.path.dirname(path) if path != '/' else '/'
+        
+        return jsonify({'path': path, 'folders': folders, 'parent': parent_path})
+    except PermissionError:
+        return jsonify({'error': 'Zugriff verweigert (Permission denied)'}), 403
+    except Exception as e:
+        return jsonify({'error': str(e)}), 400
+
 @app.route('/api/backup/download/<filename>', methods=['GET'])
 def download_backup(filename):
     path = os.path.join(BACKUP_DIR, filename)
