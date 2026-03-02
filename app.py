@@ -1,12 +1,221 @@
+import os
+import shutil
+import threading
+from datetime import datetime
+from flask import Flask, render_template, jsonify, request
 import docker
-from flask import Flask, render_template, jsonify
+from apscheduler.schedulers.background import BackgroundScheduler
 
 app = Flask(__name__)
 client = docker.from_env()
 
+# Ensure backups directory exists
+BACKUP_DIR = '/app/backups'
+HOST_PREFIX = '/hostfs'
+os.makedirs(BACKUP_DIR, exist_ok=True)
+
+scheduler = BackgroundScheduler()
+scheduler.start()
+
+def perform_backup(container_id, container_name):
+    print(f"Starting backup for {container_name} ({container_id})")
+    try:
+        container = client.containers.get(container_id)
+        
+        # 1. Stop the container
+        print(f"Stopping container {container_name}...")
+        container.stop()
+        
+        # 2. Gather paths to backup
+        paths_to_backup = []
+        
+        # Mounts
+        if 'Mounts' in container.attrs:
+            for mount in container.attrs['Mounts']:
+                if 'Source' in mount:
+                    host_path = mount['Source']
+                    # Translate host path to container path via /hostfs
+                    # Remove leading drive letters manually if they exist (e.g., C:\)
+                    if host_path.find(':\\') != -1:
+                        host_path = host_path.split(':\\', 1)[1]
+                        host_path = host_path.replace('\\', '/')
+                        # On Windows host, the Docker daemon might represent paths differently.
+                        # Assuming a Linux-like path structure for Docker Desktop WSL2:
+                        # Sometimes paths are /run/desktop/mnt/host/c/...
+                        
+                        # Note: Simple path translation for standard Linux hosts:
+                        translated_path = os.path.join(HOST_PREFIX, host_path.lstrip('/'))
+                    else:
+                        translated_path = os.path.join(HOST_PREFIX, host_path.lstrip('/'))
+                    
+                    if os.path.exists(translated_path):
+                        paths_to_backup.append(translated_path)
+
+        # Compose project working dir
+        labels = container.labels
+        working_dir = labels.get('com.docker.compose.project.working_dir')
+        if working_dir:
+            # Add compose dir as well
+            if working_dir.find(':\\') != -1:
+                working_dir = working_dir.split(':\\', 1)[1]
+                working_dir = working_dir.replace('\\', '/')
+            t_working_dir = os.path.join(HOST_PREFIX, working_dir.lstrip('/'))
+            if os.path.exists(t_working_dir) and t_working_dir not in paths_to_backup:
+                 paths_to_backup.append(t_working_dir)
+
+        # 3. Create zip archive
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        temp_dir = os.path.join(BACKUP_DIR, f"temp_{container_name}_{timestamp}")
+        os.makedirs(temp_dir, exist_ok=True)
+        
+        # Copy data
+        for path in paths_to_backup:
+            basename = os.path.basename(path)
+            dest = os.path.join(temp_dir, basename)
+            if os.path.isdir(path):
+                shutil.copytree(path, dest, dirs_exist_ok=True)
+            elif os.path.isfile(path):
+                shutil.copy2(path, dest)
+                
+        # Zip it
+        archive_name = os.path.join(BACKUP_DIR, f"backup_{container_name}_{timestamp}")
+        shutil.make_archive(archive_name, 'zip', temp_dir)
+        
+        # Cleanup temp
+        shutil.rmtree(temp_dir)
+        print(f"Backup created: {archive_name}.zip")
+        
+    except Exception as e:
+        import traceback
+        print(f"Error during backup of {container_name}: {e}")
+        traceback.print_exc()
+    finally:
+        # 4. Start container
+        try:
+            print(f"Starting container {container_name}...")
+            container.start()
+        except:
+             print(f"Failed to start container {container_name}")
+
+def sequential_backup_task(containers_to_backup):
+    for c_id, c_name in containers_to_backup:
+        perform_backup(c_id, c_name)
+
 @app.route('/')
 def index():
     return render_template('index.html')
+
+@app.route('/api/backup/manual', methods=['POST'])
+def trigger_manual_backup():
+    data = request.json
+    containers = data.get('containers', [])
+    if not containers:
+         return jsonify({'error': 'No containers provided'}), 400
+    
+    # Start backup in background thread
+    threading.Thread(target=sequential_backup_task, args=(containers,)).start()
+    return jsonify({'message': 'Backup started in background'})
+
+@app.route('/api/backup/schedule', methods=['POST'])
+def schedule_backup():
+    data = request.json
+    containers = data.get('containers', [])
+    time_str = data.get('time') # Expected format HH:MM
+    
+    if not containers or not time_str:
+         return jsonify({'error': 'Missing containers or time'}), 400
+         
+    try:
+        hour, minute = map(int, time_str.split(':'))
+        job_id = f"backup_job_{datetime.now().timestamp()}"
+        scheduler.add_job(
+            sequential_backup_task, 
+            'cron', 
+            hour=hour, 
+            minute=minute, 
+            id=job_id,
+            args=[containers]
+        )
+        return jsonify({'message': f'Backup scheduled at {time_str}'})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 400
+
+@app.route('/api/backups', methods=['GET'])
+def list_backups():
+    backups = []
+    if os.path.exists(BACKUP_DIR):
+        for f in os.listdir(BACKUP_DIR):
+            if f.endswith('.zip'):
+                path = os.path.join(BACKUP_DIR, f)
+                size = os.path.getsize(path) / (1024 * 1024) # MB
+                mtime = os.path.getmtime(path)
+                backups.append({
+                    'name': f,
+                    'size_mb': round(size, 2),
+                    'date': datetime.fromtimestamp(mtime).isoformat()
+                })
+    backups.sort(key=lambda x: x['date'], reverse=True)
+    return jsonify(backups)
+
+@app.route('/api/restore', methods=['POST'])
+def restore_backup():
+    if 'file' not in request.files:
+        return jsonify({'error': 'No file part'}), 400
+    file = request.files['file']
+    if file.filename == '':
+        return jsonify({'error': 'No selected file'}), 400
+    
+    if file and file.filename.endswith('.zip'):
+        try:
+            # 1. Save uploaded zip
+            upload_path = os.path.join(BACKUP_DIR, 'upload_' + file.filename)
+            file.save(upload_path)
+            
+            # 2. Extract zip
+            temp_extract_dir = os.path.join(BACKUP_DIR, 'temp_restore_' + datetime.now().strftime('%Y%m%d%H%M%S'))
+            os.makedirs(temp_extract_dir, exist_ok=True)
+            import zipfile
+            with zipfile.ZipFile(upload_path, 'r') as zip_ref:
+                zip_ref.extractall(temp_extract_dir)
+
+            # 3. Figure out where properties belong (this requires manual intervention or heuristics)
+            # For simplicity in this iteration: We expect the user to manually place 
+            # the extracted folders back to their host destination or use a defined restore path.
+            # Realistically, restoring arbitrary host paths from a generic zip without metadata 
+            # is complex. We will provide the extracted files in a specific 'restore' directory
+            # and instruct the user.
+            
+            restore_dest = os.path.join(HOST_PREFIX, 'restored_data', file.filename.replace('.zip', ''))
+            os.makedirs(restore_dest, exist_ok=True)
+            
+            # Copy contents back to a generic host accessible restore folder
+            for item in os.listdir(temp_extract_dir):
+                s = os.path.join(temp_extract_dir, item)
+                d = os.path.join(restore_dest, item)
+                if os.path.isdir(s):
+                    shutil.copytree(s, d, dirs_exist_ok=True)
+                else:
+                    shutil.copy2(s, d)
+
+            # Cleanup
+            shutil.rmtree(temp_extract_dir)
+            os.remove(upload_path)
+            
+            # Note: We inform the user where the files are stored on the host
+            host_restore_path = restore_dest.replace(HOST_PREFIX, '')
+            if host_restore_path.startswith('/'):
+                 # Assuming it was C:\restored_data
+                 host_restore_path = f"C:\\{host_restore_path.lstrip('/')}"
+                 host_restore_path = host_restore_path.replace('/', '\\')
+
+            return jsonify({'message': f'Leider kann Docker Watcher die Dateien nicht 100% automatisch an die exakten Ursprungsorte zurücklegen, da die Rechte und Pfade variieren. Die Backup-Dateien wurden erfolgreich auf dem Host unter {host_restore_path} (bzw. dem gemounteten Root-Verzeichnis) wiederhergestellt. Bitte verschiebe sie von dort in das finale Zielverzeichnis.'})
+
+        except Exception as e:
+            import traceback
+            print(traceback.format_exc())
+            return jsonify({'error': str(e)}), 500
+            
+    return jsonify({'error': 'Invalid file'}), 400
 
 @app.route('/api/containers')
 def get_containers():

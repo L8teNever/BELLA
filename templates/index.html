@@ -234,14 +234,172 @@
 
     <header>
         <h1>Docker Watcher Dashboard</h1>
+        <div class="header-actions" style="margin-top: 1rem; display: flex; gap: 1rem; justify-content: center;">
+            <button id="show-containers-btn" class="compose-toggle active">Container</button>
+            <button id="show-backups-btn" class="compose-toggle">Backups</button>
+        </div>
     </header>
 
     <main id="app">
-        <div id="loading" class="loading">Suchen nach Containern...</div>
-        <div id="container-list" class="container-list" style="display: none;"></div>
+        <!-- Containers View -->
+        <div id="containers-view">
+            <div class="action-bar" style="text-align: right; max-width: 1200px; margin: 1rem auto; padding: 0 2rem;">
+                <button id="backup-selected-btn" class="compose-toggle" disabled
+                    style="background: linear-gradient(to right, #22c55e, #10b981);">Ausgewählte Backupen</button>
+            </div>
+
+            <div id="loading-containers" class="loading">Suchen nach Containern...</div>
+            <div id="container-list" class="container-list" style="display: none;"></div>
+        </div>
+
+        <!-- Backups View -->
+        <div id="backups-view" style="display: none;">
+            <div class="action-bar" style="text-align: right; max-width: 1200px; margin: 1rem auto; padding: 0 2rem;">
+                <label for="restore-upload" class="compose-toggle"
+                    style="cursor:pointer; display:inline-block; background: linear-gradient(to right, #a855f7, #d946ef);">Backup
+                    hochladen & Wiederherstellen</label>
+                <input type="file" id="restore-upload" accept=".zip" style="display:none;"
+                    onchange="uploadBackup(event)">
+            </div>
+
+            <div id="loading-backups" class="loading">Lade Backups...</div>
+            <div id="backup-list" class="container-list" style="display: none;"></div>
+        </div>
     </main>
 
+    <!-- Backup Modal -->
+    <div id="backup-modal" class="modal">
+        <div class="modal-content" style="max-width: 400px; text-align: center;">
+            <span class="close-modal" id="close-backup-modal">&times;</span>
+            <h2>Backup Starten</h2>
+            <p style="margin-bottom: 2rem;">Sollen die ausgewählten Container jetzt gesichert werden oder nach Zeitplan?
+            </p>
+            <div style="display: flex; flex-direction: column; gap: 1rem;">
+                <button class="compose-toggle" style="margin: 0;" onclick="triggerManualBackup()">Jetzt
+                    Backupen</button>
+                <div
+                    style="display: flex; gap: 0.5rem; justify-content: center; align-items: center; margin-top: 1rem;">
+                    <input type="time" id="backup-time"
+                        style="padding: 0.5rem; border-radius: 0.25rem; border: none; background: #0f172a; color: white;">
+                    <button class="compose-toggle" style="margin: 0;" onclick="scheduleBackup()">Zeitplan
+                        erstellen</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <script>
+        let selectedContainers = new Set();
+
+        // Navigation Logic
+        const containersBtn = document.getElementById('show-containers-btn');
+        const backupsBtn = document.getElementById('show-backups-btn');
+        const containersView = document.getElementById('containers-view');
+        const backupsView = document.getElementById('backups-view');
+
+        containersBtn.onclick = () => {
+            containersBtn.style.opacity = '1';
+            backupsBtn.style.opacity = '0.5';
+            containersView.style.display = 'block';
+            backupsView.style.display = 'none';
+        };
+
+        backupsBtn.onclick = () => {
+            backupsBtn.style.opacity = '1';
+            containersBtn.style.opacity = '0.5';
+            containersView.style.display = 'none';
+            backupsView.style.display = 'block';
+            fetchBackups();
+        };
+
+        // Modal Logic
+        const backupModal = document.getElementById("backup-modal");
+        const backupSelectedBtn = document.getElementById("backup-selected-btn");
+        const closeBackupModal = document.getElementById("close-backup-modal");
+
+        backupSelectedBtn.onclick = () => { backupModal.style.display = "block"; }
+        closeBackupModal.onclick = () => { backupModal.style.display = "none"; }
+        window.onclick = (event) => { if (event.target == backupModal) { backupModal.style.display = "none"; } }
+
+        function toggleSelection(containerId, containerName) {
+            const strValue = JSON.stringify([containerId, containerName]);
+            if (selectedContainers.has(strValue)) {
+                selectedContainers.delete(strValue);
+            } else {
+                selectedContainers.add(strValue);
+            }
+            backupSelectedBtn.disabled = selectedContainers.size === 0;
+            if (selectedContainers.size === 0) {
+                backupSelectedBtn.style.opacity = '0.5';
+                backupSelectedBtn.style.cursor = 'not-allowed';
+            } else {
+                backupSelectedBtn.style.opacity = '1';
+                backupSelectedBtn.style.cursor = 'pointer';
+            }
+        }
+
+        async function triggerManualBackup() {
+            const containers = Array.from(selectedContainers).map(JSON.parse);
+            try {
+                const res = await fetch('/api/backup/manual', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ containers })
+                });
+                const data = await res.json();
+                alert(data.message || 'Backup gestartet');
+                backupModal.style.display = "none";
+                selectedContainers.clear();
+                toggleSelection('', ''); // reset button state
+                fetchContainers();
+            } catch (e) {
+                alert("Fehler beim Starten des Backups");
+            }
+        }
+
+        async function scheduleBackup() {
+            const time = document.getElementById('backup-time').value;
+            if (!time) return alert("Bitte wähle eine Zeit aus.");
+
+            const containers = Array.from(selectedContainers).map(JSON.parse);
+            try {
+                const res = await fetch('/api/backup/schedule', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ containers, time })
+                });
+                const data = await res.json();
+                alert(data.message || 'Zeitplan erstellt');
+                backupModal.style.display = "none";
+                selectedContainers.clear();
+                toggleSelection('', ''); // reset button state
+                fetchContainers();
+            } catch (e) {
+                alert("Fehler beim Erstellen des Zeitplans");
+            }
+        }
+
+        async function uploadBackup(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            const formData = new FormData();
+            formData.append('file', file);
+
+            try {
+                alert("Lade hoch und entpacke... Das kann einen Moment dauern.");
+                const res = await fetch('/api/restore', {
+                    method: 'POST',
+                    body: formData
+                });
+                const data = await res.json();
+                alert(data.message || data.error);
+                fetchBackups();
+            } catch (e) {
+                alert("Ein Fehler ist beim Restore aufgetreten.");
+            }
+        }
+
         async function fetchContainers() {
             try {
                 const response = await fetch('/api/containers');
@@ -253,20 +411,62 @@
                 }
 
                 renderContainers(containers);
-                document.getElementById('loading').style.display = 'none';
+                document.getElementById('loading-containers').style.display = 'none';
                 document.getElementById('container-list').style.display = 'grid';
             } catch (error) {
                 console.error('Failed to fetch containers:', error);
             }
         }
 
+        async function fetchBackups() {
+            try {
+                const response = await fetch('/api/backups');
+                const backups = await response.json();
+                renderBackups(backups);
+                document.getElementById('loading-backups').style.display = 'none';
+                document.getElementById('backup-list').style.display = 'grid';
+            } catch (error) {
+                console.error('Failed to fetch backups:', error);
+            }
+        }
+
+        function renderBackups(backups) {
+            const list = document.getElementById('backup-list');
+            list.innerHTML = '';
+
+            if (backups.length === 0) {
+                list.style.display = 'block';
+                list.innerHTML = '<div style="text-align: center; opacity: 0.5;">Keine Backups gefunden.</div>';
+                return;
+            }
+
+            backups.forEach(backup => {
+                const item = document.createElement('div');
+                item.className = 'container-card';
+                item.innerHTML = `
+                    <div class="card-header">
+                        <span class="container-name" style="word-break: break-all;">${backup.name}</span>
+                    </div>
+                    <div class="status-badge status-other" style="display: inline-block; margin-bottom: 1rem;">${backup.size_mb} MB</div>
+                    <div class="uptime">Erstellt am: ${new Date(backup.date).toLocaleString()}</div>
+                `;
+                list.appendChild(item);
+            });
+        }
+
         function renderContainers(containers) {
             const list = document.getElementById('container-list');
             list.innerHTML = '';
 
+            // Keep selection state across refreshes
+            const selectedSet = new Set(Array.from(selectedContainers));
+
             containers.forEach(container => {
                 const card = document.createElement('div');
                 card.className = 'container-card';
+                card.id = `card-${container.id}`;
+
+                const strValue = JSON.stringify([container.id, container.name]);
 
                 const statusClass = `status-${container.status.toLowerCase()}` || 'status-other';
 
@@ -293,7 +493,12 @@
                 }
 
                 card.innerHTML = `
-                    <div class="card-header">
+                    <div style="position: absolute; top: 1.5rem; right: 1.5rem; z-index: 5;">
+                        <input type="checkbox" style="width: 1.2rem; height: 1.2rem; cursor: pointer; accent-color: var(--accent-color);" 
+                               ${selectedSet.has(strValue) ? 'checked' : ''}
+                               onchange="toggleSelection('${container.id}', '${container.name}')">
+                    </div>
+                    <div class="card-header" style="margin-right: 2.5rem;">
                         <span class="container-name">${container.name}</span>
                         <span class="status-badge ${statusClass}">${container.status}</span>
                     </div>
@@ -309,10 +514,19 @@
             });
         }
 
+        // Initialize UI states
+        document.getElementById('show-backups-btn').style.opacity = '0.5';
+        toggleSelection('', ''); // initialize disabled state for backup button
+
         // Initial fetch
         fetchContainers();
-        // Poll every 5 seconds
-        setInterval(fetchContainers, 5000);
+
+        // Poll every 5 seconds, but only if container view is active to avoid resetting selections annoyingly
+        setInterval(() => {
+            if (containersView.style.display !== 'none') {
+                fetchContainers();
+            }
+        }, 5000);
     </script>
 </body>
 

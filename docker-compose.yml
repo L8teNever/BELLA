@@ -8,6 +8,8 @@ services:
       - "5000:5000"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
+      - /:/hostfs:ro # Read-only access to host for backup
+      - ./backups:/app/backups # Store zip files here
     restart: unless-stopped
     logging:
       driver: "json-file"
