@@ -1,4 +1,4 @@
-flask
-docker
-apscheduler
-werkzeug
+Flask==3.0.0
+docker==7.0.0
+APScheduler==3.10.4
+Werkzeug==3.0.0

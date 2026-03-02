@@ -421,6 +421,12 @@
         window.onclick = (event) => { if (event.target == backupModal) { backupModal.classList.remove("show"); } }
 
         function toggleSelection(containerId, containerName) {
+            // Validate inputs
+            if (typeof containerId !== 'string' || typeof containerName !== 'string') {
+                console.error('Invalid container selection parameters');
+                return;
+            }
+
             const strValue = JSON.stringify([containerId, containerName]);
             if (selectedContainers.has(strValue)) {
                 selectedContainers.delete(strValue);
@@ -437,6 +443,18 @@
             }
         }
 
+        // Utility function for safe HTML escaping
+        function escapeHtml(text) {
+            const map = {
+                '&': '&amp;',
+                '<': '&lt;',
+                '>': '&gt;',
+                '"': '&quot;',
+                "'": '&#039;'
+            };
+            return text.replace(/[&<>"']/g, m => map[m]);
+        }
+
         async function triggerManualBackup() {
             const containers = Array.from(selectedContainers).map(JSON.parse);
             try {
@@ -445,20 +463,29 @@
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ containers })
                 });
+
+                if (!res.ok) {
+                    throw new Error(`Server returned ${res.status}`);
+                }
+
                 const data = await res.json();
                 alert(data.message || 'Backup gestartet');
                 backupModal.classList.remove("show");
                 selectedContainers.clear();
-                toggleSelection('', ''); // reset button state
+                toggleSelection('', '');
                 fetchContainers();
-            } catch (e) {
-                alert("Fehler beim Starten des Backups");
+            } catch (error) {
+                console.error('Backup error:', error);
+                alert("Fehler beim Starten des Backups: " + error.message);
             }
         }
 
         async function scheduleBackup() {
             const time = document.getElementById('backup-time').value;
-            if (!time) return alert("Bitte wähle eine Zeit aus.");
+            if (!time) {
+                alert("Bitte wähle eine Zeit aus.");
+                return;
+            }
 
             const containers = Array.from(selectedContainers).map(JSON.parse);
             try {
@@ -467,20 +494,35 @@
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ containers, time })
                 });
+
+                if (!res.ok) {
+                    throw new Error(`Server returned ${res.status}`);
+                }
+
                 const data = await res.json();
                 alert(data.message || 'Zeitplan erstellt');
                 backupModal.classList.remove("show");
                 selectedContainers.clear();
-                toggleSelection('', ''); // reset button state
+                toggleSelection('', '');
                 fetchContainers();
-            } catch (e) {
-                alert("Fehler beim Erstellen des Zeitplans");
+            } catch (error) {
+                console.error('Schedule error:', error);
+                alert("Fehler beim Erstellen des Zeitplans: " + error.message);
             }
         }
 
         async function uploadBackup(event) {
             const file = event.target.files[0];
-            if (!file) return;
+            if (!file) {
+                alert("Keine Datei ausgewählt");
+                return;
+            }
+
+            // Validate file type
+            if (!file.name.endsWith('.zip')) {
+                alert("Nur .zip Dateien werden unterstützt");
+                return;
+            }
 
             const formData = new FormData();
             formData.append('file', file);
@@ -491,41 +533,64 @@
                     method: 'POST',
                     body: formData
                 });
+
+                if (!res.ok) {
+                    throw new Error(`Server returned ${res.status}`);
+                }
+
                 const data = await res.json();
                 alert(data.message || data.error);
                 fetchBackups();
-            } catch (e) {
-                alert("Ein Fehler ist beim Restore aufgetreten.");
+            } catch (error) {
+                console.error('Upload error:', error);
+                alert("Ein Fehler ist beim Restore aufgetreten: " + error.message);
+            } finally {
+                // Reset file input
+                event.target.value = '';
             }
         }
 
         async function fetchContainers() {
             try {
                 const response = await fetch('/api/containers');
-                const containers = await response.json();
+                if (!response.ok) {
+                    throw new Error(`Server returned ${response.status}`);
+                }
 
-                if (containers.error) {
-                    console.error('Error fetching containers:', containers.error);
+                const data = await response.json();
+
+                // Check if response is an error object
+                if (data.error) {
+                    console.error('Error fetching containers:', data.error);
+                    document.getElementById('container-list').innerHTML = `<div style="grid-column: 1 / -1; padding: 2rem; text-align: center; color: red;">Fehler beim Laden der Container: ${escapeHtml(data.error)}</div>`;
+                    document.getElementById('loading-containers').style.display = 'none';
+                    document.getElementById('container-list').style.display = 'grid';
                     return;
                 }
 
-                renderContainers(containers);
+                renderContainers(Array.isArray(data) ? data : []);
                 document.getElementById('loading-containers').style.display = 'none';
                 document.getElementById('container-list').style.display = 'grid';
             } catch (error) {
                 console.error('Failed to fetch containers:', error);
+                document.getElementById('loading-containers').textContent = 'Fehler beim Laden: ' + error.message;
             }
         }
 
         async function fetchBackups() {
             try {
                 const response = await fetch('/api/backups');
-                const backups = await response.json();
-                renderBackups(backups);
+                if (!response.ok) {
+                    throw new Error(`Server returned ${response.status}`);
+                }
+
+                const data = await response.json();
+                renderBackups(Array.isArray(data) ? data : []);
                 document.getElementById('loading-backups').style.display = 'none';
                 document.getElementById('backup-list').style.display = 'grid';
             } catch (error) {
                 console.error('Failed to fetch backups:', error);
+                document.getElementById('loading-backups').textContent = 'Fehler beim Laden: ' + error.message;
             }
         }
 
@@ -547,12 +612,17 @@
             backups.forEach(backup => {
                 const item = document.createElement('div');
                 item.className = 'container-card';
+
+                const backupName = escapeHtml(backup.name);
+                const backupDate = new Date(backup.date).toLocaleString();
+                const backupSize = backup.size_mb;
+
                 item.innerHTML = `
                     <div class="card-header">
-                        <span class="container-name" style="word-break: break-all;">${backup.name}</span>
+                        <span class="container-name" style="word-break: break-all;" title="${backupName}">${backupName}</span>
                     </div>
-                    <div class="status-badge status-other" style="display: inline-block; margin-bottom: 1rem;">${backup.size_mb} MB</div>
-                    <div class="uptime">Erstellt am: ${new Date(backup.date).toLocaleString()}</div>
+                    <div class="status-badge status-other" style="display: inline-block; margin-bottom: 1rem;">${backupSize} MB</div>
+                    <div class="uptime">Erstellt am: ${backupDate}</div>
                     <div style="margin-top: 1.5rem; display: flex; gap: 0.5rem; flex-wrap: wrap;">
                         <button class="compose-toggle" style="padding: 0.4rem 0.8rem; font-size: 0.8rem; background: linear-gradient(to right, #10b981, #059669);" onclick="downloadBackup('${backup.name}')">Download</button>
                         <button class="compose-toggle" style="padding: 0.4rem 0.8rem; font-size: 0.8rem; background: linear-gradient(to right, #f59e0b, #d97706);" onclick="restoreToPath('${backup.name}')">Extrahieren nach Pfad</button>
@@ -596,11 +666,16 @@
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ path: reqPath })
                 });
+
+                if (!res.ok) {
+                    throw new Error(`Server returned ${res.status}`);
+                }
+
                 const data = await res.json();
 
                 if (data.error) {
-                    alert(data.error);
-                    fsList.innerHTML = `<div style="color: red; padding: 1rem;">Fehler: ${data.error}</div>`;
+                    console.error('FS list error:', data.error);
+                    fsList.innerHTML = `<div style="color: #f87171; padding: 1rem;">Fehler: ${escapeHtml(data.error)}</div>`;
                     return;
                 }
 
@@ -608,13 +683,21 @@
                 fsCurrentPath.innerText = currentExtractPath;
                 fsList.innerHTML = '';
 
+                if (!Array.isArray(data.folders)) {
+                    fsList.innerHTML = '<div style="color: #f87171; padding: 1rem;">Ungültige Antwort vom Server</div>';
+                    return;
+                }
+
                 data.folders.forEach(folder => {
                     const fDiv = document.createElement('div');
                     fDiv.style.padding = '0.5rem';
                     fDiv.style.cursor = 'pointer';
                     fDiv.style.borderRadius = '0.25rem';
                     fDiv.className = 'fs-folder';
-                    fDiv.innerHTML = `📁 ${folder}`;
+                    fDiv.textContent = '📁 ';
+                    const folderSpan = document.createElement('span');
+                    folderSpan.textContent = folder;
+                    fDiv.appendChild(folderSpan);
                     fDiv.onclick = () => navigateFs(folder);
                     fDiv.onmouseover = () => fDiv.style.background = 'rgba(255,255,255,0.1)';
                     fDiv.onmouseout = () => fDiv.style.background = 'transparent';
@@ -624,8 +707,9 @@
                 if (data.folders.length === 0) {
                     fsList.innerHTML = '<div style="text-align: center; padding: 1rem; opacity: 0.5;">Leer</div>';
                 }
-            } catch (e) {
-                alert("Fehler beim Laden des Verzeichnisses");
+            } catch (error) {
+                console.error('FS navigation error:', error);
+                fsList.innerHTML = `<div style="color: #f87171; padding: 1rem;">Fehler beim Laden: ${error.message}</div>`;
             }
         }
 
@@ -637,9 +721,14 @@
         }
 
         fsSelectBtn.onclick = async () => {
-            if (!activeExtractFilename || !currentExtractPath) return;
+            if (!activeExtractFilename || !currentExtractPath) {
+                alert("Bitte wähle ein Zielverzeichnis aus");
+                return;
+            }
 
-            if (!confirm(`Soll das Backup "${activeExtractFilename}" wirklich nach ${currentExtractPath} entpackt werden?`)) return;
+            if (!confirm(`Soll das Backup "${escapeHtml(activeExtractFilename)}" wirklich nach ${currentExtractPath} entpackt werden?`)) {
+                return;
+            }
 
             try {
                 fsModal.classList.remove('show');
@@ -649,10 +738,17 @@
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ filename: activeExtractFilename, target_path: currentExtractPath })
                 });
+
+                if (!res.ok) {
+                    throw new Error(`Server returned ${res.status}`);
+                }
+
                 const data = await res.json();
-                alert(data.message || data.error);
-            } catch (e) {
-                alert("Ein Fehler ist beim Extrahieren aufgetreten.");
+                alert(data.message || data.error || 'Restaurierung abgeschlossen');
+                fetchBackups();
+            } catch (error) {
+                console.error('Restore error:', error);
+                alert("Ein Fehler ist beim Extrahieren aufgetreten: " + error.message);
             }
         };
 
@@ -666,50 +762,64 @@
             containers.forEach(container => {
                 const card = document.createElement('div');
                 card.className = 'container-card';
-                card.id = `card-${container.id}`;
+                card.id = `card-${escapeHtml(container.id)}`;
 
                 const strValue = JSON.stringify([container.id, container.name]);
+                const statusClass = `status-${escapeHtml(container.status.toLowerCase())}` || 'status-other';
 
-                const statusClass = `status-${container.status.toLowerCase()}` || 'status-other';
+                // Escape all user-controlled content
+                const containerName = escapeHtml(container.name);
+                const containerId = escapeHtml(container.id);
+                const containerImage = escapeHtml(container.image);
+                const containerStatus = escapeHtml(container.status);
 
                 let mountsHtml = '';
                 if (container.mounts && container.mounts.length > 0) {
                     mountsHtml = '<div class="info-section"><strong>Mounts:</strong><ul>';
                     container.mounts.forEach(m => {
-                        mountsHtml += `<li><span class="path-label">Host:</span> ${m.source} <br> <span class="path-label">Container:</span> ${m.destination}</li>`;
+                        const source = escapeHtml(m.source);
+                        const dest = escapeHtml(m.destination);
+                        mountsHtml += `<li><span class="path-label">Host:</span> ${source} <br> <span class="path-label">Container:</span> ${dest}</li>`;
                     });
                     mountsHtml += '</ul></div>';
                 }
 
                 let composeHtml = '';
                 if (container.compose && container.compose.project !== 'N/A') {
+                    const project = escapeHtml(container.compose.project);
+                    const service = escapeHtml(container.compose.service);
+                    const workingDir = escapeHtml(container.compose.working_dir);
+                    const configFiles = escapeHtml(container.compose.config_files);
+
                     composeHtml = `
                         <div class="info-section compose-info">
                             <strong>Compose Config:</strong>
-                            <div class="compose-item"><span class="path-label">Projekt:</span> ${container.compose.project}</div>
-                            <div class="compose-item"><span class="path-label">Service:</span> ${container.compose.service}</div>
-                            <div class="compose-item"><span class="path-label">Arbeitsverz.:</span> ${container.compose.working_dir}</div>
-                            <div class="compose-item"><span class="path-label">Config-Dateien:</span> ${container.compose.config_files}</div>
+                            <div class="compose-item"><span class="path-label">Projekt:</span> ${project}</div>
+                            <div class="compose-item"><span class="path-label">Service:</span> ${service}</div>
+                            <div class="compose-item"><span class="path-label">Arbeitsverz.:</span> ${workingDir}</div>
+                            <div class="compose-item"><span class="path-label">Config-Dateien:</span> ${configFiles}</div>
                         </div>
                     `;
                 }
 
+                const containerUptime = new Date(container.uptime).toLocaleString();
+
                 card.innerHTML = `
                     <div style="position: absolute; top: 1.5rem; right: 1.5rem; z-index: 5;">
-                        <input type="checkbox" style="width: 1.2rem; height: 1.2rem; cursor: pointer; accent-color: var(--accent-color);" 
+                        <input type="checkbox" style="width: 1.2rem; height: 1.2rem; cursor: pointer; accent-color: var(--accent-color);"
                                ${selectedSet.has(strValue) ? 'checked' : ''}
                                onchange="toggleSelection('${container.id}', '${container.name}')">
                     </div>
                     <div class="card-header" style="margin-right: 2.5rem;">
-                        <span class="container-name">${container.name}</span>
-                        <span class="status-badge ${statusClass}">${container.status}</span>
+                        <span class="container-name" title="${containerName}">${containerName}</span>
+                        <span class="status-badge ${statusClass}">${containerStatus}</span>
                     </div>
-                    <div class="image-name">${container.image}</div>
-                    <div class="container-id">ID: ${container.id}</div>
+                    <div class="image-name">${containerImage}</div>
+                    <div class="container-id">ID: ${containerId}</div>
                     ${composeHtml}
                     ${mountsHtml}
                     <div class="uptime">
-                        <span>Started: ${new Date(container.uptime).toLocaleString()}</span>
+                        <span>Started: ${containerUptime}</span>
                     </div>
                 `;
                 list.appendChild(card);
