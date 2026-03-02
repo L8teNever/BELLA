@@ -41,10 +41,27 @@ def perform_backup(container_id, container_name):
                     # Or they look like C:\Users\... or /c/Users/...
                     translated_path = host_path
                     if host_path.find(':\\') != -1:
-                        # Drive letter handling "C:\Path" -> "/hostfs/c/Path" (often mounted like this in some systems)
-                        # Or simply we strip C:\ and append to hostfs
+                        # Drive letter handling "C:\Path" -> "/hostfs/run/desktop/mnt/host/c/Path"
                         parts = host_path.split(':\\', 1)
-                        translated_path = os.path.join(HOST_PREFIX, parts[1].replace('\\', '/').lstrip('/'))
+                        drive = parts[0].lower()
+                        rest = parts[1].replace('\\', '/').lstrip('/')
+                        
+                        possible_paths = [
+                            os.path.join(HOST_PREFIX, 'run', 'desktop', 'mnt', 'host', drive, rest), # Modern Docker Desktop
+                            os.path.join(HOST_PREFIX, 'mnt', drive, rest), # WSL standard
+                            os.path.join(HOST_PREFIX, drive, rest), # Fallback
+                            os.path.join(HOST_PREFIX, 'host_mnt', drive, rest) # Older Docker Desktop
+                        ]
+                        
+                        found = False
+                        for p in possible_paths:
+                            if os.path.exists(p):
+                                translated_path = p
+                                found = True
+                                break
+                        if not found:
+                            # Just default to first guess for logging
+                            translated_path = possible_paths[0]
                     elif host_path.startswith('/'):
                         # Already unix-like path, prepend hostfs
                         translated_path = os.path.join(HOST_PREFIX, host_path.lstrip('/'))
@@ -55,6 +72,8 @@ def perform_backup(container_id, container_name):
                         paths_to_backup.append(translated_path)
                     elif os.path.exists(host_path): # fallback if internal docker path is identical
                         paths_to_backup.append(host_path)
+                    else:
+                        print(f"WARNING: Pfad {host_path} konnte auf dem Host-System nicht gefunden werden!")
 
         # Compose project working dir
         labels = container.labels
@@ -63,7 +82,19 @@ def perform_backup(container_id, container_name):
             translated_working_dir = working_dir
             if working_dir.find(':\\') != -1:
                 parts = working_dir.split(':\\', 1)
-                translated_working_dir = os.path.join(HOST_PREFIX, parts[1].replace('\\', '/').lstrip('/'))
+                drive = parts[0].lower()
+                rest = parts[1].replace('\\', '/').lstrip('/')
+                
+                possible_paths = [
+                    os.path.join(HOST_PREFIX, 'run', 'desktop', 'mnt', 'host', drive, rest),
+                    os.path.join(HOST_PREFIX, 'mnt', drive, rest),
+                    os.path.join(HOST_PREFIX, drive, rest),
+                    os.path.join(HOST_PREFIX, 'host_mnt', drive, rest)
+                ]
+                for p in possible_paths:
+                    if os.path.exists(p):
+                        translated_working_dir = p
+                        break
             elif working_dir.startswith('/'):
                 translated_working_dir = os.path.join(HOST_PREFIX, working_dir.lstrip('/'))
                 
